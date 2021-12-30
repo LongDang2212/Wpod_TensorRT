@@ -16,7 +16,7 @@ enable=1
 
 # 1:camera(v4l2) 2: single uri 3:multi uri 4:rtsp 5 camera(CSI) only for Jetson
 type=2
-uri=file:/opt/nvidia/deepstream/deepstream-5.0/sources/alpr_ds/wpod/deepstream_app_wpod/test.mp4
+uri=file://test.mp4
 num-sources=1
 gpu-id=0
 cudadec-memtype=0

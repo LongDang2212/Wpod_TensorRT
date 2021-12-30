@@ -1,5 +1,6 @@
 #include <iostream>
 #include <chrono>
+#include <sys/stat.h>
 #include "cuda_runtime_api.h"
 #include "logging.h"
 #include "common.hpp"
@@ -14,9 +15,29 @@ static const int OPT_INPUT_W = 256;
 static const int OPT_INPUT_H = 256;
 const char *INPUT_BLOB_NAME = "data";
 const char *OUTPUT_BLOB_NAME = "out";
-const char *WEIGHT_PATH = "/opt/nvidia/deepstream/deepstream-5.0/sources/alpr_ds/wpod/build/wpod.wts";
+const char *WEIGHT_PATH = "../wpod.wts";
 static Logger gLogger;
 
+int dirExists(const char *const path)
+{
+    struct stat info;
+
+    int statRC = stat(path, &info);
+    if (statRC != 0)
+    {
+        if (errno == ENOENT)
+        {
+            return 0;
+        } // something along the path does not exist
+        if (errno == ENOTDIR)
+        {
+            return 0;
+        } // something in path prefix is not a dir
+        return -1;
+    }
+
+    return (info.st_mode & S_IFDIR) ? 1 : 0;
+}
 ICudaEngine *createEngine(unsigned int maxBatchSize, IBuilder *builder, IBuilderConfig *config, DataType dt)
 {
     const auto explicitBatch = 1U << static_cast<uint32_t>(NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
@@ -365,6 +386,16 @@ void build_engine()
     p.write(reinterpret_cast<const char *>(modelStream->data()), modelStream->size());
     modelStream->destroy();
 }
+std::string get_file_name(std::string full_path)
+{
+    // get filename
+    std::string base_filename = full_path.substr(full_path.find_last_of("/\\") + 1);
+
+    // remove extension from filename
+    std::string::size_type const p(base_filename.find_last_of('.'));
+    std::string file_without_extension = base_filename.substr(0, p);
+    return file_without_extension;
+}
 int main(int argc, char **argv)
 {
     auto opt = std::string(argv[1]);
@@ -372,19 +403,18 @@ int main(int argc, char **argv)
         build_engine();
     else if (opt[0] == 't')
     {
-        std::string file_name = "/opt/nvidia/deepstream/deepstream-5.0/sources/apps/sample_apps/wpod/build/output/out_0.jpg";
-        cv::Mat pr_img = cv::imread(file_name);
+        std::string file_path = "/opt/nvidia/deepstream/deepstream-5.0/sources/apps/sample_apps/wpod/build/output/out_0.jpg";
+        cv::Mat pr_img = cv::imread(file_path);
         assert(!pr_img.empty());
-        cv::Mat out_im = cv::Mat(cv::Size(280*2,100), CV_8UC3);
-        pr_img(cv::Rect(0,100,280,100)).copyTo(out_im(cv::Rect(0,0,280,100)));
-        pr_img(cv::Rect(0,100,280,100)).copyTo(out_im(cv::Rect(280,0,280,100)));
-        cv::imwrite("concat.jpg",out_im);
-        
+        cv::Mat out_im = cv::Mat(cv::Size(280 * 2, 100), CV_8UC3);
+        pr_img(cv::Rect(0, 100, 280, 100)).copyTo(out_im(cv::Rect(0, 0, 280, 100)));
+        pr_img(cv::Rect(0, 100, 280, 100)).copyTo(out_im(cv::Rect(280, 0, 280, 100)));
+        cv::imwrite("concat.jpg", out_im);
     }
     else
     {
-        std::string file_name = opt;
-        cv::Mat pr_img = cv::imread(file_name);
+        std::string file_path = opt;
+        cv::Mat pr_img = cv::imread(file_path);
         assert(!pr_img.empty());
         cv::Mat src_img;
         cv::Mat img;
@@ -432,10 +462,15 @@ int main(int argc, char **argv)
         std::vector<cv::Mat> output;
         post_process(img, output, prob, 256, 256);
         auto end1 = std::chrono::system_clock::now();
-        std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end1 - start1).count() << "ms" << std::endl;
+        std::cout << std::endl
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(end1 - start1).count() << "ms" << std::endl;
+        if (dirExists("/output"))
+        {
+            int ret = system("mkdir output");
+        }
         for (int i = 0; i < output.size(); i++)
         {
-            cv::imwrite("output/out_" + std::to_string(i) + ".jpg", output[i]);
+            cv::imwrite("output/" + get_file_name(file_path) + std::to_string(i) + ".jpg", output[i]);
         }
 
         delete[] data;

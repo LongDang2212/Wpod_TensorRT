@@ -400,6 +400,11 @@ void post_process(cv::Mat image, std::vector<cv::Mat> &out_img, float *prob, int
             o.push_back(v);
         }
     }
+    if(o.empty())
+    {
+        std::cout<<"\nNo licence plate found!\n";
+        return;
+    }
     std::vector<DLabel> label;
     std::vector<DLabel> label_frontal;
     for (int i = 0; i < o.size(); i++)
@@ -451,7 +456,7 @@ void post_process(cv::Mat image, std::vector<cv::Mat> &out_img, float *prob, int
         cv::Rect crop(l.tl[0]*256, l.tl[1]*256, l.wh[0]*256, l.wh[1]*256);
         auto img = image.clone();
         cv::rectangle(img, crop, cv::Scalar(0, 255, 255), 2);
-        cv::imwrite("output/d.jpg", img);
+        // cv::imwrite("output/d.jpg", img);
     }
     std::vector<DLabel> final_label_frontal;
     nms(label_frontal, NMS_THRESH, final_label_frontal);

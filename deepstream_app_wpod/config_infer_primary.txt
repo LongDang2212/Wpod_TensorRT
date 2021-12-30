@@ -6,7 +6,7 @@ net-scale-factor=0.0039215697906911373
 # 0:RGB 1:BGR
 model-color-format=0
 
-model-engine-file=/opt/nvidia/deepstream/deepstream-5.0/sources/alpr_ds/wpod/build/wpod.engine
+model-engine-file=../build/wpod.engine
 
 labelfile-path=labels.txt
 num-detected-classes=2
@@ -23,7 +23,7 @@ network-type=0
 cluster-mode=4
 maintain-aspect-ratio=1
 parse-bbox-func-name=NvDsInferParseCustomWpod
-custom-lib-path=/opt/nvidia/deepstream/deepstream-5.0/sources/alpr_ds/wpod/nvdsinfer_wpod/libnvdsinfer_custom_impl_Wpod.so
+custom-lib-path=nvdsinfer_wpod/libnvdsinfer_custom_impl_Wpod.so
 
 [class-attrs-all]
 pre-cluster-threshold=0.25
