@@ -1,0 +1,3 @@
+[submodule "singular"]
+	path = singular
+	url = https://github.com/kikuomax/singular.git

@@ -8,7 +8,8 @@
 
 /**** Build ****/
 
-    - Build SVD lib:    cd singular
+    - Build SVD lib:    git clone https://github.com/kikuomax/singular.git
+			cd singular
                         mkdir build && cd build
                         cmake ..
                         make all && make install
