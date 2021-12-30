@@ -1,7 +1,8 @@
 # WPOD Net
 
 
-This repo is a TensorRT C++ implement of WPOD Net. 
+This repo is a TensorRT C++ implement of WPOD Net.
+Tested on platform: NVIDIA Jetson NX + Deepstream 5.0. 
 
 ## Config
 
