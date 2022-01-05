@@ -38,6 +38,123 @@ int dirExists(const char *const path)
 
     return (info.st_mode & S_IFDIR) ? 1 : 0;
 }
+ICudaEngine *createEngineV1(unsigned int maxBatchSize, IBuilder *builder, IBuilderConfig *config, DataType dt)
+{
+    const auto explicitBatch = 1U << static_cast<uint32_t>(NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
+    INetworkDefinition *network = builder->createNetworkV2(0U);
+    // Create input tensor of shape {3, INPUT_H, INPUT_W} with name INPUT_BLOB_NAME
+    ITensor *data = network->addInput(INPUT_BLOB_NAME, dt, Dims3{3, 256, 256});
+    assert(data);
+
+    std::map<std::string, Weights> weightMap = loadWeights(WEIGHT_PATH);
+    Weights emptywts{DataType::kFLOAT, nullptr, 0};
+    /* ------------------- Wpod backbone ------------------ */
+
+    int num = 1;
+
+    // conv + bn + relu 3x3 16
+    auto convBlock1 = addConvBlock(network, weightMap, data, 16, num);
+
+    // conv + bn + relu 3x3 16
+    auto convBlock2 = addConvBlock(network, weightMap, convBlock1->getOutput(0), 16, num);
+
+    // max pooling 1
+    IPoolingLayer *maxPool1 = network->addPoolingNd(*convBlock2->getOutput(0), PoolingType::kMAX, DimsHW{2, 2});
+    maxPool1->setStrideNd(DimsHW{2, 2});
+
+    // conv + bn + relu 3x3 32
+    auto convBlock3 = addConvBlock(network, weightMap, maxPool1->getOutput(0), 32, num);
+
+    // resblock 32
+    auto resBlock1 = addResBlock(network, weightMap, convBlock3->getOutput(0), 32, num);
+
+    // max pooling 2
+    IPoolingLayer *maxPool2 = network->addPoolingNd(*resBlock1->getOutput(0), PoolingType::kMAX, DimsHW{2, 2});
+    maxPool2->setStrideNd(DimsHW{2, 2});
+
+    // conv + bn + relu 3x3 64
+    auto convBlock4 = addConvBlock(network, weightMap, maxPool2->getOutput(0), 64, num);
+
+    // resblock 64
+    auto resBlock2 = addResBlock(network, weightMap, convBlock4->getOutput(0), 64, num);
+
+    // resblock 64
+    auto resBlock3 = addResBlock(network, weightMap, resBlock2->getOutput(0), 64, num);
+
+    // max pooling 3
+    IPoolingLayer *maxPool3 = network->addPoolingNd(*resBlock3->getOutput(0), PoolingType::kMAX, DimsHW{2, 2});
+    maxPool3->setStrideNd(DimsHW{2, 2});
+
+    // conv + bn + relu 3x3 64
+    auto convBlock5 = addConvBlock(network, weightMap, maxPool3->getOutput(0), 64, num);
+
+    // resblock 64
+    auto resBlock4 = addResBlock(network, weightMap, convBlock5->getOutput(0), 64, num);
+
+    // resblock 64
+    auto resBlock5 = addResBlock(network, weightMap, resBlock4->getOutput(0), 64, num);
+
+    // max pooling 4
+    IPoolingLayer *maxPool4 = network->addPoolingNd(*resBlock5->getOutput(0), PoolingType::kMAX, DimsHW{2, 2});
+    maxPool4->setStrideNd(DimsHW{2, 2});
+
+    // conv + bn + relu 3x3 128
+    auto convBlock6 = addConvBlock(network, weightMap, maxPool4->getOutput(0), 128, num);
+
+    // resblock 128
+    auto resBlock6 = addResBlock(network, weightMap, convBlock6->getOutput(0), 128, num);
+
+    // resblock 128
+    auto resBlock7 = addResBlock(network, weightMap, resBlock6->getOutput(0), 128, num);
+
+    // resblock 128
+    auto resBlock8 = addResBlock(network, weightMap, resBlock7->getOutput(0), 128, num);
+
+    // resblock 128
+    auto resBlock9 = addResBlock(network, weightMap, resBlock8->getOutput(0), 128, num);
+
+    // detection
+    IConvolutionLayer *conv25 = network->addConvolutionNd(*resBlock9->getOutput(0), 2, DimsHW{3, 3}, weightMap["conv2d_" + std::to_string(num) + "/kernel:0"], weightMap["conv2d_" + std::to_string(num++) + "/bias:0"]);
+    assert(conv25);
+    conv25->setStrideNd(DimsHW{1, 1});
+    conv25->setPaddingNd(DimsHW{1, 1});
+    ISoftMaxLayer *softmax = network->addSoftMax(*conv25->getOutput(0));
+    IConvolutionLayer *conv26 = network->addConvolutionNd(*resBlock9->getOutput(0), 6, DimsHW{3, 3}, weightMap["conv2d_" + std::to_string(num) + "/kernel:0"], weightMap["conv2d_" + std::to_string(num) + "/bias:0"]);
+    assert(conv26);
+    conv26->setStrideNd(DimsHW{1, 1});
+    conv26->setPaddingNd(DimsHW{1, 1});
+    ITensor *c[] = {softmax->getOutput(0), conv26->getOutput(0)};
+    IConcatenationLayer *concat = network->addConcatenation(c, 2);
+    concat->getOutput(0)->setName(OUTPUT_BLOB_NAME);
+    network->markOutput(*concat->getOutput(0));
+
+    IOptimizationProfile *profile = builder->createOptimizationProfile();
+    // profile->setDimensions(INPUT_BLOB_NAME, OptProfileSelector::kMIN, Dims4(1, 3, MIN_INPUT_SIZE, MIN_INPUT_SIZE));
+    // profile->setDimensions(INPUT_BLOB_NAME, OptProfileSelector::kOPT, Dims4(1, 3, OPT_INPUT_H, OPT_INPUT_W));
+    // profile->setDimensions(INPUT_BLOB_NAME, OptProfileSelector::kMAX, Dims4(1, 3, MAX_INPUT_SIZE, MAX_INPUT_SIZE));
+
+    // Build engine
+    builder->setMaxBatchSize(maxBatchSize);
+    config->setMaxWorkspaceSize(16 * (1 << 20)); // 16MB
+
+#ifdef USE_FP16
+    config->setFlag(BuilderFlag::kFP16);
+#endif
+    std::cout << "Building engine, please wait for a while..." << std::endl;
+    ICudaEngine *engine = builder->buildEngineWithConfig(*network, *config);
+    std::cout << "Build engine successfully!" << std::endl;
+
+    // Don't need the network any more
+    network->destroy();
+
+    // Release host memory
+    for (auto &mem : weightMap)
+    {
+        free((void *)(mem.second.values));
+    }
+
+    return engine;
+}
 ICudaEngine *createEngine(unsigned int maxBatchSize, IBuilder *builder, IBuilderConfig *config, DataType dt)
 {
     const auto explicitBatch = 1U << static_cast<uint32_t>(NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
@@ -323,7 +440,7 @@ void APIToModel(unsigned int maxBatchSize, IHostMemory **modelStream)
     IBuilderConfig *config = builder->createBuilderConfig();
 
     // Create model to populate the network, then set the outputs and create an engine
-    ICudaEngine *engine = createEngine(maxBatchSize, builder, config, DataType::kFLOAT);
+    ICudaEngine *engine = createEngineV1(maxBatchSize, builder, config, DataType::kFLOAT);
     //ICudaEngine* engine = createEngine(maxBatchSize, builder, config, DataType::kFLOAT);
     assert(engine != nullptr);
 

@@ -336,7 +336,6 @@ std::map<std::string, Weights> loadWeights(const std::string file)
 
     return weightMap;
 }
-
 IScaleLayer *addBatchNorm2d(INetworkDefinition *network, std::map<std::string, Weights> &weightMap, ITensor &input, std::string lname, float eps)
 {
     float *gamma = (float *)weightMap[lname + "/gamma:0"].values;
@@ -373,6 +372,35 @@ IScaleLayer *addBatchNorm2d(INetworkDefinition *network, std::map<std::string, W
     assert(scale_1);
     return scale_1;
 }
+IActivationLayer *addResBlock(INetworkDefinition *network, std::map<std::string, Weights> &weightMap, ITensor *input, int channels, int &num)
+{
+    IConvolutionLayer *conv1 = network->addConvolutionNd(*input, channels, DimsHW{3, 3}, weightMap["conv2d_" + std::to_string(num) + "/kernel:0"], weightMap["conv2d_" + std::to_string(num) + "/bias:0"]);
+    assert(conv1);
+    conv1->setStrideNd(DimsHW{1, 1});
+    conv1->setPaddingNd(DimsHW{1, 1});
+    auto bn1 = addBatchNorm2d(network, weightMap, *conv1->getOutput(0), "batch_normalization_" + std::to_string(num++), 0.001);
+    IActivationLayer *relu1 = network->addActivation(*bn1->getOutput(0), ActivationType::kRELU);
+    IConvolutionLayer *conv2 = network->addConvolutionNd(*relu1->getOutput(0), channels, DimsHW{3, 3}, weightMap["conv2d_" + std::to_string(num) + "/kernel:0"], weightMap["conv2d_" + std::to_string(num) + "/bias:0"]);
+    assert(conv2);
+    conv2->setStrideNd(DimsHW{1, 1});
+    conv2->setPaddingNd(DimsHW{1, 1});
+    auto bn2 = addBatchNorm2d(network, weightMap, *conv2->getOutput(0), "batch_normalization_" + std::to_string(num++), 0.001);
+    IElementWiseLayer *sum = network->addElementWise(*bn2->getOutput(0), *input, ElementWiseOperation::kSUM);
+    IActivationLayer *relu2 = network->addActivation(*sum->getOutput(0), ActivationType::kRELU);
+    return relu2;
+}
+IActivationLayer *addConvBlock(INetworkDefinition *network, std::map<std::string, Weights> &weightMap, ITensor *input, int channels, int &num)
+{
+    IConvolutionLayer *conv = network->addConvolutionNd(*input, channels, DimsHW{3, 3}, weightMap["conv2d_" + std::to_string(num) + "/kernel:0"], weightMap["conv2d_" + std::to_string(num) + "/bias:0"]);
+    assert(conv);
+    conv->setPaddingNd(DimsHW{1, 1});
+    conv->setStrideNd(DimsHW{1, 1});
+    auto bn = addBatchNorm2d(network, weightMap, *conv->getOutput(0), "batch_normalization_" + std::to_string(num++), 0.001);
+    IActivationLayer *relu = network->addActivation(*bn->getOutput(0), ActivationType::kRELU);
+    return relu;
+}
+
+
 
 void post_process(cv::Mat image, std::vector<cv::Mat> &out_img, float *prob, int h, int w)
 {
@@ -400,9 +428,9 @@ void post_process(cv::Mat image, std::vector<cv::Mat> &out_img, float *prob, int
             o.push_back(v);
         }
     }
-    if(o.empty())
+    if (o.empty())
     {
-        std::cout<<"\nNo licence plate found!\n";
+        std::cout << "\nNo licence plate found!\n";
         return;
     }
     std::vector<DLabel> label;
@@ -453,7 +481,7 @@ void post_process(cv::Mat image, std::vector<cv::Mat> &out_img, float *prob, int
     {
         std::cout << "\n"
                   << l.tl[0] << "\t" << l.tl[1];
-        cv::Rect crop(l.tl[0]*256, l.tl[1]*256, l.wh[0]*256, l.wh[1]*256);
+        cv::Rect crop(l.tl[0] * 256, l.tl[1] * 256, l.wh[0] * 256, l.wh[1] * 256);
         auto img = image.clone();
         cv::rectangle(img, crop, cv::Scalar(0, 255, 255), 2);
         // cv::imwrite("output/d.jpg", img);
